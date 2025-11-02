@@ -1,0 +1,135 @@
+# ============================================================================
+# seisCAE Clustering-Focused Configuration
+# ============================================================================
+# Optimized configuration for clustering and analysis.
+# Use this when you want to focus on clustering stage.
+#
+# Author: Ankit Suthar
+# Date: 2025-11-02
+# ============================================================================
+
+# Clustering Parameters
+# ---------------------
+clustering:
+  algorithm: gmm                # Gaussian Mixture Model
+  n_clusters: null              # Auto-select optimal number
+  covariance_type: full         # Full covariance for flexibility
+  max_clusters: 25              # Test up to 25 clusters
+  random_state: 42              # Reproducibility
+  n_init: 20                    # Number of initializations
+
+# GMM-Specific Parameters
+# -----------------------
+gmm:
+  tol: 0.0001                   # Convergence tolerance
+  max_iter: 200                 # Maximum iterations
+  reg_covar: 0.000001           # Covariance regularization
+  warm_start: false             # Warm start
+
+# Cluster Selection Criteria
+# ---------------------------
+selection:
+  method: bic                   # Selection method (bic, aic, silhouette)
+  min_cluster_size: 5           # Minimum events per cluster
+  merge_small_clusters: true    # Merge small clusters
+  merge_threshold: 10           # Merge if < N events
+
+# Feature Preprocessing for Clustering
+# -------------------------------------
+preprocessing:
+  normalization: standard       # standard, minmax, robust, none
+  dimensionality_reduction: null  # pca, umap, tsne, null
+  n_components: null            # Components for dim reduction (null = auto)
+  remove_outliers: true         # Remove outliers before clustering
+  outlier_method: isolation_forest  # isolation_forest, local_outlier_factor
+  outlier_contamination: 0.05   # Fraction of outliers to remove
+
+# Cluster Validation
+# ------------------
+validation:
+  compute_metrics: true         # Compute validation metrics
+  metrics:
+    - silhouette                # Silhouette score
+    - davies_bouldin            # Davies-Bouldin index
+    - calinski_harabasz         # Calinski-Harabasz index
+  cross_validation: false       # Cross-validate clustering (slow)
+  n_folds: 5                    # CV folds
+
+# Visualization Parameters
+# ------------------------
+visualization:
+  dpi: 300                      # High quality for publication
+  format: pdf                   # PDF for publication
+  examples_per_cluster: 10      # More examples
+  colormap: OrRd
+  save_individual_clusters: true  # Save separate files per cluster
+  
+# Cluster Analysis
+# ----------------
+analysis:
+  compute_centers: true         # Compute cluster centers
+  compute_distances: true       # Compute distances to centers
+  rank_by_distance: true        # Rank events by distance to center
+  save_nearest_events: 5        # Save N nearest events per cluster
+  save_farthest_events: 3       # Save N farthest events per cluster
+
+# Latent Space Visualization
+# ---------------------------
+latent_visualization:
+  methods:
+    - umap                      # UMAP projection
+    - tsne                      # t-SNE projection
+    - pca                       # PCA projection
+  umap_params:
+    n_neighbors: 15
+    min_dist: 0.1
+    metric: euclidean
+  tsne_params:
+    perplexity: 30
+    learning_rate: 200
+    n_iter: 1000
+
+# I/O Parameters
+# --------------
+io:
+  output_base: ./results_clustering
+  save_waveforms: false
+  save_spectrograms: false
+  save_diagnostics: true
+
+# Export Options
+# --------------
+export:
+  formats:
+    - csv                       # CSV format
+    - xlsx                      # Excel format
+    - pkl                       # Pickle format
+  include_features: true        # Include feature vectors
+  include_metadata: true        # Include event metadata
+  create_summary_report: true   # Create summary PDF report
+
+# Logging
+# -------
+logging:
+  level: INFO
+  log_file: clustering.log
+  format: "%(asctime)s | %(levelname)s | %(message)s"
+
+# Advanced Clustering Options
+# ----------------------------
+advanced:
+  # Try multiple clustering algorithms
+  compare_algorithms: false     # Compare GMM, DBSCAN, etc.
+  algorithms_to_compare:
+    - gmm
+    # - kmeans
+    # - dbscan
+    # - hdbscan
+  
+  # Hierarchical clustering
+  hierarchical: false           # Enable hierarchical clustering
+  linkage_method: ward          # ward, average, complete, single
+  
+  # Ensemble clustering
+  ensemble: false               # Ensemble clustering (slow)
+  ensemble_n_runs: 10           # Number of ensemble runs

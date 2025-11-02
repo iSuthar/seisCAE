@@ -1,0 +1,53 @@
+# ============================================================================
+# seisCAE Microseismic Monitoring Configuration
+# ============================================================================
+# Optimized for microseismic monitoring (e.g., mining, hydraulic fracturing).
+#
+# Author: Ankit Suthar
+# Date: 2025-11-02
+# ============================================================================
+
+detection:
+  sta_seconds: 0.1              # Very short STA for small events
+  lta_seconds: 10.0             # Shorter LTA
+  threshold_on: 10.0            # Low threshold for sensitivity
+  threshold_off: 1.5
+  sampling_rate: 500.0          # Higher sampling rate
+  highpass_freq: 5.0            # Higher frequencies
+
+spectrogram:
+  nperseg: 64                   # Shorter segments for high-freq
+  noverlap_ratio: 0.9
+  nfft: 256
+  freq_min: 5.0                 # Higher minimum
+  freq_max: 200.0               # Much higher maximum
+  time_bins: 40
+  freq_bins: 256
+
+model:
+  architecture: conv_ae
+  latent_dim: 12                # Smaller latent space
+  dropout: 0.1
+
+training:
+  epochs: 300
+  batch_size: 128
+  learning_rate: 0.0001
+  patience: 20
+
+clustering:
+  algorithm: gmm
+  n_clusters: null
+  max_clusters: 10              # Fewer types expected
+  covariance_type: full
+
+components:
+  - EHZ
+
+io:
+  output_base: ./results_microseismic
+
+hardware:
+  gpu: 0
+
+application: microseismic_monitoring

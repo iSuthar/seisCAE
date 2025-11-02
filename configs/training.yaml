@@ -1,0 +1,100 @@
+# ============================================================================
+# seisCAE Training-Focused Configuration
+# ============================================================================
+# Optimized configuration for autoencoder training and feature extraction.
+# Use this when you want to focus on model training.
+#
+# Author: Ankit Suthar
+# Date: 2025-11-02
+# ============================================================================
+
+# Model Architecture Parameters
+# ------------------------------
+model:
+  architecture: conv_ae         # Convolutional autoencoder
+  latent_dim: 16                # Compact latent representation
+  dropout: 0.15                 # Higher dropout to prevent overfitting
+  input_channels: 1             # Single-channel spectrograms
+
+# Training Parameters
+# -------------------
+training:
+  epochs: 500                   # More epochs for better convergence
+  batch_size: 64                # Smaller batch size for better gradients
+  learning_rate: 0.00005        # Lower learning rate (5e-5)
+  patience: 30                  # More patience for convergence
+  validation_split: 0.25        # 25% validation data
+  num_workers: 8                # More workers for data loading
+  save_frequency: 25            # Save checkpoints every 25 epochs
+
+# Training Advanced Options
+# -------------------------
+training_advanced:
+  optimizer: adam               # Optimizer (adam, sgd, adamw)
+  weight_decay: 0.0001          # L2 regularization
+  scheduler: reduce_on_plateau  # LR scheduler (reduce_on_plateau, cosine, step)
+  scheduler_patience: 10        # Scheduler patience
+  scheduler_factor: 0.5         # LR reduction factor
+  gradient_clip: 1.0            # Gradient clipping value
+  min_learning_rate: 0.000001   # Minimum learning rate (1e-6)
+
+# Loss Function
+# -------------
+loss:
+  type: mse                     # Loss type (mse, mae, huber)
+  reconstruction_weight: 1.0    # Weight for reconstruction loss
+  kl_weight: 0.0                # Weight for KL divergence (VAE only)
+
+# Data Augmentation
+# -----------------
+augmentation:
+  enabled: false                # Enable data augmentation (experimental)
+  time_shift: 0.1               # Random time shift (fraction)
+  amplitude_scale: 0.1          # Random amplitude scaling (fraction)
+  add_noise: 0.05               # Add Gaussian noise (std fraction)
+
+# Hardware Parameters
+# -------------------
+hardware:
+  gpu: 0                        # Use GPU 0 for training
+  mixed_precision: true         # Use mixed precision for speed
+  deterministic: false          # Non-deterministic for speed
+
+# I/O Parameters
+# --------------
+io:
+  output_base: ./results_training
+  save_waveforms: false         # Don't save waveforms during training
+  save_spectrograms: true       # Save spectrograms
+  save_diagnostics: true        # Save training diagnostics
+
+# Visualization During Training
+# ------------------------------
+visualization:
+  dpi: 150                      # Lower DPI for faster plotting
+  format: png
+  examples_per_cluster: 3
+  save_reconstruction_examples: true
+  reconstruction_frequency: 50  # Save examples every 50 epochs
+
+# Logging
+# -------
+logging:
+  level: INFO
+  log_file: training.log
+  format: "%(asctime)s | %(name)s | %(levelname)s | %(message)s"
+
+# Model Checkpointing
+# -------------------
+checkpointing:
+  save_best_only: true          # Only save best model
+  monitor: val_loss             # Metric to monitor
+  mode: min                     # min or max
+  save_weights_only: false      # Save full model state
+
+# Feature Extraction
+# ------------------
+feature_extraction:
+  batch_size: 128               # Batch size for feature extraction
+  normalize: true               # Normalize extracted features
+  save_format: npy              # Format (npy, h5, csv)

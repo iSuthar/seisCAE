@@ -1,0 +1,61 @@
+# ============================================================================
+# seisCAE Tectonic Seismicity Configuration
+# ============================================================================
+# Optimized for tectonic earthquake detection and classification.
+#
+# Author: Ankit Suthar
+# Date: 2025-11-02
+# ============================================================================
+
+detection:
+  sta_seconds: 0.5
+  lta_seconds: 40.0             # Longer LTA for regional events
+  threshold_on: 30.0            # Higher threshold for clear events
+  threshold_off: 3.0
+  sampling_rate: 100.0
+  highpass_freq: 0.5            # Lower highpass for larger events
+
+spectrogram:
+  nperseg: 128
+  noverlap_ratio: 0.9
+  nfft: 512
+  freq_min: 0.5                 # Lower frequency range
+  freq_max: 25.0
+  time_bins: 40
+  freq_bins: 256
+
+model:
+  architecture: conv_ae
+  latent_dim: 32                # Larger latent space
+  dropout: 0.1
+
+training:
+  epochs: 400
+  batch_size: 256               # Larger batch for more data
+  learning_rate: 0.0001
+  patience: 25
+
+clustering:
+  algorithm: gmm
+  n_clusters: null
+  max_clusters: 25              # More cluster types expected
+  covariance_type: full
+
+components:
+  - EHZ
+
+io:
+  output_base: ./results_tectonic
+
+hardware:
+  gpu: 0
+
+# Tectonic event characteristics:
+# - Local events
+# - Regional events
+# - Aftershocks
+# - Mainshocks
+expected_features:
+  - magnitude_variation
+  - depth_variation
+  - azimuthal_variation

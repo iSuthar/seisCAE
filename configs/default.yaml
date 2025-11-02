@@ -1,0 +1,106 @@
+# ============================================================================
+# seisCAE Default Configuration
+# ============================================================================
+# This is the default configuration file for seisCAE.
+# Copy and modify this file for your specific use case.
+#
+# Author: Ankit Suthar
+# Date: 2025-11-02
+# ============================================================================
+
+# Event Detection Parameters
+# ---------------------------
+detection:
+  sta_seconds: 0.5              # Short-term average window (seconds)
+  lta_seconds: 30.0             # Long-term average window (seconds)
+  threshold_on: 25.0            # Trigger ON threshold (STA/LTA ratio)
+  threshold_off: 3.0            # Trigger OFF threshold (STA/LTA ratio)
+  sampling_rate: 100.0          # Expected sampling rate (Hz)
+  highpass_freq: 1.0            # Highpass filter frequency (Hz), null to disable
+
+# Spectrogram Generation Parameters
+# ----------------------------------
+spectrogram:
+  nperseg: 128                  # STFT segment length (samples)
+  noverlap_ratio: 0.9           # Overlap ratio (0.0 - 1.0)
+  nfft: 512                     # FFT length
+  freq_min: 1.0                 # Minimum frequency (Hz)
+  freq_max: 50.0                # Maximum frequency (Hz)
+  time_bins: 40                 # Target number of time bins
+  freq_bins: 256                # Target number of frequency bins
+  window_seconds: 4.0           # Time window for spectrogram (seconds)
+
+# Model Architecture Parameters
+# ------------------------------
+model:
+  architecture: conv_ae         # Model architecture (conv_ae, resnet_ae, vae)
+  latent_dim: 16                # Latent space dimensionality
+  dropout: 0.1                  # Dropout probability (0.0 - 1.0)
+  input_channels: 1             # Number of input channels
+
+# Training Parameters
+# -------------------
+training:
+  epochs: 300                   # Maximum number of training epochs
+  batch_size: 128               # Batch size for training
+  learning_rate: 0.0001         # Learning rate (1e-4)
+  patience: 20                  # Early stopping patience (epochs)
+  validation_split: 0.3         # Validation split ratio (0.0 - 1.0)
+  num_workers: 4                # Number of DataLoader workers
+  save_frequency: 10            # Save checkpoint every N epochs
+
+# Clustering Parameters
+# ---------------------
+clustering:
+  algorithm: gmm                # Clustering algorithm (gmm, kmeans, dbscan)
+  n_clusters: null              # Number of clusters (null for auto-select)
+  covariance_type: full         # GMM covariance type (full, tied, diag, spherical)
+  max_clusters: 20              # Maximum clusters for auto-selection
+  random_state: 42              # Random seed for reproducibility
+
+# Visualization Parameters
+# ------------------------
+visualization:
+  dpi: 300                      # Figure DPI (dots per inch)
+  format: png                   # Figure format (png, pdf, svg)
+  examples_per_cluster: 5       # Number of examples to show per cluster
+  colormap: OrRd                # Colormap for spectrograms
+
+# Input/Output Parameters
+# -----------------------
+io:
+  output_base: ./results        # Base output directory
+  save_waveforms: true          # Save extracted waveforms
+  save_spectrograms: true       # Save spectrograms as .npy
+  save_diagnostics: true        # Save diagnostic plots
+  catalog_format: pkl           # Catalog format (pkl, csv, h5)
+
+# Seismic Components to Process
+# -----------------------------
+components:
+  - EHZ                         # Vertical component (Z)
+  # - EHN                       # North component (N)
+  # - EHE                       # East component (E)
+  # - HHZ                       # High-gain vertical
+  # - BHZ                       # Broadband vertical
+
+# Hardware Parameters
+# -------------------
+hardware:
+  gpu: -1                       # GPU ID (-1 for CPU, 0+ for specific GPU)
+  mixed_precision: false        # Use mixed precision training (requires GPU)
+  deterministic: true           # Use deterministic algorithms (slower but reproducible)
+
+# Logging Parameters
+# ------------------
+logging:
+  level: INFO                   # Logging level (DEBUG, INFO, WARNING, ERROR)
+  log_file: null                # Log file path (null for console only)
+  format: "%(asctime)s | %(name)s | %(levelname)s | %(message)s"
+
+# Advanced Options
+# ----------------
+advanced:
+  feature_normalization: standard  # Feature normalization (standard, minmax, none)
+  augmentation: false           # Data augmentation (experimental)
+  ensemble_models: 1            # Number of ensemble models (1 = no ensemble)

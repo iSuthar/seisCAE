@@ -1,0 +1,64 @@
+# ============================================================================
+# seisCAE Volcanic Seismicity Configuration
+# ============================================================================
+# Optimized for volcanic earthquake detection and classification.
+#
+# Author: Ankit Suthar
+# Date: 2025-11-02
+# ============================================================================
+
+detection:
+  sta_seconds: 0.3              # Short STA for high-frequency tremor
+  lta_seconds: 20.0             # Moderate LTA
+  threshold_on: 15.0            # Lower threshold for small events
+  threshold_off: 2.0
+  sampling_rate: 100.0
+  highpass_freq: 1.0
+
+spectrogram:
+  nperseg: 128
+  noverlap_ratio: 0.9
+  nfft: 512
+  freq_min: 1.0
+  freq_max: 20.0                # Lower max for volcanic frequencies
+  time_bins: 40
+  freq_bins: 256
+
+model:
+  architecture: conv_ae
+  latent_dim: 24                # Larger latent space for diversity
+  dropout: 0.1
+
+training:
+  epochs: 500
+  batch_size: 64
+  learning_rate: 0.0001
+  patience: 30
+
+clustering:
+  algorithm: gmm
+  n_clusters: null
+  max_clusters: 15              # Expect fewer distinct types
+  covariance_type: full
+
+components:
+  - EHZ
+  - EHN
+  - EHE
+
+io:
+  output_base: ./results_volcanic
+
+hardware:
+  gpu: 0
+
+# Volcanic event types to distinguish:
+# - Volcano-tectonic (VT)
+# - Long-period (LP)
+# - Hybrid
+# - Tremor
+expected_event_types:
+  - VT
+  - LP
+  - Hybrid
+  - Tremor

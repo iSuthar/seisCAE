@@ -1,0 +1,79 @@
+# ============================================================================
+# seisCAE Detection-Focused Configuration
+# ============================================================================
+# Optimized configuration for event detection and spectrogram generation.
+# Use this when you want to focus on the detection stage.
+#
+# Author: Ankit Suthar
+# Date: 2025-11-02
+# ============================================================================
+
+# Event Detection Parameters
+# ---------------------------
+# Optimized for sensitive detection
+detection:
+  sta_seconds: 0.5              # Short STA window for fast events
+  lta_seconds: 30.0             # Long LTA window for stable baseline
+  threshold_on: 20.0            # Lower threshold for more sensitivity
+  threshold_off: 2.5            # Lower off threshold
+  sampling_rate: 100.0          # Expected sampling rate
+  highpass_freq: 1.0            # Remove long-period noise
+
+# Spectrogram Generation Parameters
+# ----------------------------------
+spectrogram:
+  nperseg: 128                  # Good time-frequency resolution
+  noverlap_ratio: 0.95          # High overlap for smooth spectrograms
+  nfft: 512                     # Good frequency resolution
+  freq_min: 0.5                 # Lower minimum for low-frequency events
+  freq_max: 50.0                # Standard maximum
+  time_bins: 40                 # Standard time bins
+  freq_bins: 256                # Standard frequency bins
+  window_seconds: 4.0           # 4-second window
+
+# I/O Parameters
+# --------------
+io:
+  output_base: ./results_detection
+  save_waveforms: true          # Save all waveforms
+  save_spectrograms: true       # Save all spectrograms
+  save_diagnostics: true        # Save all diagnostic plots
+
+# Components
+# ----------
+components:
+  - EHZ                         # Vertical component
+  - EHN                         # North component
+  - EHE                         # East component
+
+# Hardware
+# --------
+hardware:
+  gpu: -1                       # CPU for detection (no GPU needed)
+  mixed_precision: false
+  deterministic: true
+
+# Logging
+# -------
+logging:
+  level: DEBUG                  # Verbose logging for detection
+  log_file: detection.log
+  format: "%(asctime)s | %(levelname)s | %(message)s"
+
+# Detection-Specific Options
+# ---------------------------
+detection_options:
+  min_event_duration: 0.5       # Minimum event duration (seconds)
+  max_event_duration: 60.0      # Maximum event duration (seconds)
+  merge_nearby_triggers: true   # Merge triggers within gap
+  merge_gap_seconds: 1.0        # Gap for merging (seconds)
+  reject_low_energy: true       # Reject low-energy events
+  energy_threshold: 0.01        # Energy threshold for rejection
+
+# Quality Control
+# ---------------
+quality_control:
+  check_data_quality: true      # Check for data gaps, spikes
+  reject_clipped: true          # Reject clipped waveforms
+  reject_gaps: true             # Reject data with gaps
+  max_gap_fraction: 0.1         # Maximum allowed gap fraction
