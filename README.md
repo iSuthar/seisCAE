@@ -213,7 +213,6 @@ MIT License - see [LICENSE](LICENSE) file for details.
 
 - Built with [PyTorch](https://pytorch.org/)
 - Seismic data handling with [ObsPy](https://obspy.org/)
-- Inspired by [PyImageSearch AutoEncoder Tutorial](https://pyimagesearch.com/2023/07/17/implementing-a-convolutional-autoencoder-with-pytorch/)
 
 ## 📧 Contact
 
