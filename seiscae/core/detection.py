@@ -68,6 +68,8 @@ class EventDetector:
     """
     Detect seismic events using STA/LTA trigger algorithm.
     
+    Supports both classic single-window and multi-window STA/LTA methods.
+    
     Parameters
     ----------
     sta_seconds : float
@@ -80,10 +82,25 @@ class EventDetector:
         Trigger OFF threshold
     highpass_freq : float, optional
         Highpass filter frequency in Hz
+    method : str
+        Detection method: "classic" or "multi_window" (default: "classic")
+    delta_sta : float
+        Ratio between longest and shortest STA windows (for multi_window)
+    delta_lta : float
+        Ratio between longest and shortest LTA windows (for multi_window)
+    epsilon : float
+        Maximum ratio between adjacent window lengths (for multi_window)
     
     Examples
     --------
-    >>> detector = EventDetector(sta_seconds=0.5, lta_seconds=30.0)
+    Classic STA/LTA:
+    
+    >>> detector = EventDetector.create_classic()
+    >>> stream, cft, triggers = detector.detect_file("data.mseed")
+    
+    Multi-window STA/LTA:
+    
+    >>> detector = EventDetector.create_multi_window()
     >>> stream, cft, triggers = detector.detect_file("data.mseed")
     >>> print(f"Found {len(triggers)} events")
     """
@@ -95,20 +112,41 @@ class EventDetector:
         threshold_on: float = 25.0,
         threshold_off: float = 3.0,
         highpass_freq: Optional[float] = 1.0,
+        method: str = "classic",
+        delta_sta: float = 20.0,
+        delta_lta: float = 20.0,
+        epsilon: float = 2.0,
     ):
         self.sta_seconds = sta_seconds
         self.lta_seconds = lta_seconds
         self.threshold_on = threshold_on
         self.threshold_off = threshold_off
         self.highpass_freq = highpass_freq
+        self.method = method
+        self.delta_sta = delta_sta
+        self.delta_lta = delta_lta
+        self.epsilon = epsilon
         
         # Validate parameters
-        if sta_seconds >= lta_seconds:
+        self._validate_parameters()
+
+    def _validate_parameters(self) -> None:
+        """Validate detection parameters."""
+        if self.sta_seconds >= self.lta_seconds:
             raise ValueError("STA window must be smaller than LTA window")
-        if threshold_on <= threshold_off:
+        if self.threshold_on <= self.threshold_off:
             raise ValueError("Threshold ON must be greater than threshold OFF")
-    
-    def detect_file(self, filepath: str) -> Tuple[Stream, np.ndarray, List[Tuple[int, int]]]:
+
+        if self.method not in ["classic", "multi_window"]:
+            raise ValueError(f"Unknown method: {self.method}. Use 'classic' or 'multi_window'")
+
+        if self.method == "multi_window":
+            if self.delta_sta <= 0 or self.delta_lta <= 0:
+                raise ValueError("delta_sta and delta_lta must be positive for multi_sta_lta method")
+            if self.epsilon <= 1.0:
+                raise ValueError("epsilon must be greater than 1.0 for multi_window method")
+            
+    def detect_file(self, filepath: str, min_event_duration: float = 0.0) -> Tuple[Stream, np.ndarray, List[Tuple[int, int]]]:
         """
         Detect events in a single seismic file.
         
@@ -116,6 +154,8 @@ class EventDetector:
         ----------
         filepath : str
             Path to seismic data file (supports ObsPy readable formats)
+        min_event_duration : float
+            Minimum event duration in seconds (default: 0.0)
             
         Returns
         -------
@@ -137,15 +177,31 @@ class EventDetector:
         if self.highpass_freq:
             tr.filter("highpass", freq=self.highpass_freq)
         
-        # Calculate STA/LTA
+        # Calculate STA/LTA using selected method
         df = tr.stats.sampling_rate
         sta_samples = int(self.sta_seconds * df)
         lta_samples = int(self.lta_seconds * df)
-        
-        cft = classic_sta_lta(tr.data, sta_samples, lta_samples)
+
+        if self.method == "multi_window":
+            logger.info(f"Computing multi_window STA/LTA (delta_sta={self.delta_sta}, "
+                        f"delta_lta={self.delta_lta}, epsilon={self.epsilon})")
+            cft = multi_sta_lta(tr.data, sta_samples, lta_samples,
+                                self.delta_sta, self.delta_lta, self.epsilon)
+        else: # classic
+            logger.info("Computing classic STA/LTA")
+            cft = classic_sta_lta(tr.data, sta_samples, lta_samples)
+        # Detect triggers
         triggers = trigger_onset(cft, self.threshold_on, self.threshold_off)
+
+        # Filter by minimum duration
+        if min_event_duration > 0:
+            min_samples = int(min_event_duration * df)
+            triggers = np.array([
+                [onset, offset] for onset, offset in triggers
+                if (offset - onset) >= min_samples
+            ])
         
-        logger.info(f"Found {len(triggers)} events")
+        logger.info(f"Found {len(triggers)} events using {self.method} method")
         return st, cft, triggers
     
     def detect_directory(
@@ -187,3 +243,103 @@ class EventDetector:
                 logger.error(f"Error processing {filepath}: {e}")
         
         return results
+
+    @classmethod
+    def create_multi_window(
+        cls,
+        sta_seconds: float = 0.05,
+        lta_seconds: float = 1.0,
+        delta_sta: float = 20.0,
+        delta_lta: float = 20.0,
+        epsilon: float = 2.0,
+        threshold_on: float = 2.5,
+        threshold_off: float = 1.2,
+        highpass_freq: Optional[float] = 1.0,
+    ) -> "EventDetector":
+        """
+        Create detector configured for multi-window STA/LTA.
+        
+        Parameters
+        ----------
+        sta_seconds : float
+            Short-term average window (default: 0.05s)
+        lta_seconds : float
+            Long-term average window (default: 1.0s)
+        delta_sta : float
+            STA window ratio (default: 20.0)
+        delta_lta : float
+            LTA window ratio (default: 20.0)
+        epsilon : float
+            Adjacent window ratio (default: 2.0)
+        threshold_on : float
+            Trigger ON threshold (default: 2.5)
+        threshold_off : float
+            Trigger OFF threshold (default: 1.2)
+        highpass_freq : float, optional
+            Highpass filter frequency in Hz (default: 1.0)
+            
+        Returns
+        -------
+        detector : EventDetector
+            Configured detector instance
+            
+        Examples
+        --------
+        >>> detector = EventDetector.create_multi_window()
+        >>> st, cft, triggers = detector.detect_file("data.mseed")
+        """
+        return cls(
+            sta_seconds=sta_seconds,
+            lta_seconds=lta_seconds,
+            threshold_on=threshold_on,
+            threshold_off=threshold_off,
+            highpass_freq=highpass_freq,
+            method="multi_window",
+            delta_sta=delta_sta,
+            delta_lta=delta_lta,
+            epsilon=epsilon,
+        )
+    
+    @classmethod
+    def create_classic(
+        cls,
+        sta_seconds: float = 0.5,
+        lta_seconds: float = 30.0,
+        threshold_on: float = 25.0,
+        threshold_off: float = 3.0,
+        highpass_freq: Optional[float] = 1.0,
+    ) -> "EventDetector":
+        """
+        Create detector configured for classic STA/LTA.
+        
+        Parameters
+        ----------
+        sta_seconds : float
+            Short-term average window (default: 0.5s)
+        lta_seconds : float
+            Long-term average window (default: 30.0s)
+        threshold_on : float
+            Trigger ON threshold (default: 25.0)
+        threshold_off : float
+            Trigger OFF threshold (default: 3.0)
+        highpass_freq : float, optional
+            Highpass filter frequency in Hz (default: 1.0)
+            
+        Returns
+        -------
+        detector : EventDetector
+            Configured detector instance
+            
+        Examples
+        --------
+        >>> detector = EventDetector.create_classic()
+        >>> st, cft, triggers = detector.detect_file("data.mseed")
+        """
+        return cls(
+            sta_seconds=sta_seconds,
+            lta_seconds=lta_seconds,
+            threshold_on=threshold_on,
+            threshold_off=threshold_off,
+            highpass_freq=highpass_freq,
+            method="classic",
+        )
