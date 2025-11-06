@@ -8,6 +8,12 @@ DEFAULT_CONFIG = {
         "threshold_on": 25.0,
         "threshold_off": 3.0,
         "sampling_rate": 100.0,
+        "method": "classic",
+        "delta_sta": 20.0,
+        "delta_lta": 20.0,
+        "epsilon": 2.0,
+        "min_event_duration": 0.0,
+        "dead_time": 0.0,
     },
     
     # Spectrogram parameters
