@@ -40,7 +40,9 @@ from .pipeline import Pipeline, PipelineResults
 from .config import load_config, ConfigManager
 
 # Component imports (for modular usage)
-from .core import EventDetector, SpectrogramGenerator, EventCatalog
+from .core.detection import EventDetector, multi_sta_lta
+from .core.catalog import EventCatalog
+from .core.preprocessing import SpectrogramGenerator, EventExtractor
 from .models import get_model, ConvAutoencoder
 from .training import AutoencoderTrainer
 from .clustering import get_clusterer, GMMClusterer
@@ -59,8 +61,10 @@ __all__ = [
     
     # Core components
     'EventDetector',
+    'multi_sta_lta',
     'SpectrogramGenerator',
     'EventCatalog',
+    'EventExtractor',
     
     # Models
     'get_model',
