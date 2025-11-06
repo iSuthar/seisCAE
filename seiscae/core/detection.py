@@ -68,7 +68,8 @@ class EventDetector:
     """
     Detect seismic events using STA/LTA trigger algorithm.
     
-    Supports both classic single-window and multi-window STA/LTA methods.
+    Supports both classic single-window and multi-window STA/LTA methods
+    with configurable event filtering.
     
     Parameters
     ----------
@@ -90,19 +91,34 @@ class EventDetector:
         Ratio between longest and shortest LTA windows (for multi_window)
     epsilon : float
         Maximum ratio between adjacent window lengths (for multi_window)
+    min_event_duration : float
+        Minimum event duration in seconds (default: 0.0)
+    dead_time : float
+        Minimum time in seconds between consecutive events (default: 0.0)
     
     Examples
     --------
-    Classic STA/LTA:
+    Classic STA/LTA with filtering:
     
-    >>> detector = EventDetector.create_classic()
+    >>> detector = EventDetector.create_classic(
+    ...     min_event_duration=1.0,
+    ...     dead_time=5.0
+    ... )
     >>> stream, cft, triggers = detector.detect_file("data.mseed")
     
-    Multi-window STA/LTA:
+    Multi-window STA/LTA with filtering:
     
-    >>> detector = EventDetector.create_multi_window()
-    >>> stream, cft, triggers = detector.detect_file("data.mseed")
+    >>> detector = EventDetector.create_multi_window(
+    ...     min_event_duration=0.5,
+    ...     dead_time=1.2
+    ... )
+    >>> stream, cft, triggers = detector.detect_file("data.sac")
     >>> print(f"Found {len(triggers)} events")
+    
+    Notes
+    -----
+    The dead_time parameter helps avoid detecting multiple triggers
+    for the same event or closely spaced overlapping events.
     """
     
     def __init__(
@@ -116,6 +132,8 @@ class EventDetector:
         delta_sta: float = 20.0,
         delta_lta: float = 20.0,
         epsilon: float = 2.0,
+        min_event_duration: float = 0.0,
+        dead_time: flaot = 1.0,
     ):
         self.sta_seconds = sta_seconds
         self.lta_seconds = lta_seconds
@@ -126,6 +144,8 @@ class EventDetector:
         self.delta_sta = delta_sta
         self.delta_lta = delta_lta
         self.epsilon = epsilon
+        self.min_event_duration = min_event_duration
+        self.dead_time = dead_time
         
         # Validate parameters
         self._validate_parameters()
@@ -145,8 +165,61 @@ class EventDetector:
                 raise ValueError("delta_sta and delta_lta must be positive for multi_sta_lta method")
             if self.epsilon <= 1.0:
                 raise ValueError("epsilon must be greater than 1.0 for multi_window method")
-            
-    def detect_file(self, filepath: str, min_event_duration: float = 0.0) -> Tuple[Stream, np.ndarray, List[Tuple[int, int]]]:
+
+        if self.min_event_duration < 0:
+            raise ValueError("min_event_duration must be non-negative")
+
+        if self.dead_time < 0:
+            raise ValueError("dead_time must be non-negative")
+
+    def _apply_filters(
+        self,
+        triggers: np.ndarray,
+        sampling_rate: float
+    ) -> np.ndarray:
+        """
+        Apply minimum duration and dead time filters to triggers.
+
+        Parameters
+        ----------
+        triggers : np.ndarray
+            Array of (onset, offset) trigger pairs
+        sampling_rate : float
+            Sampling rate in Hz
+
+        Returns
+        -------
+        filterd_triggers : np.ndarray
+            Filtered array of (onset, offset) trigger pairs
+        """
+        if len(triggers) == 0:
+            return triggers
+
+        # Filter by minimum duration
+        if self.min_event_duration > 0:
+            min_samples = int(self.min_event_duration * sampling_rate)
+            triggers = np.array([
+                [onset, offset] for onset, offset in triggers
+                if (offset - onset) >= min_samples
+            ])
+            logger.info(f"After min_duration filter: {len(triggers)} events")
+
+        # Apply dead time filter
+        if self.dead_time > 0 and len(triggers) > 1:
+            dead_time_samples = int(self.dead_time * sampling_rate)
+            filtered_triggers = [triggers[0]] # Always keep the first trigger
+
+            for i in range(1, len(triggers)):
+                # Check if this trigger starts after the dead tiem from the last accepted trigger
+                if triggers[i][0] >= (filtered_triggers[-1][1] + dead_time_samples):
+                    filtered_triggers.append(triggers[i])
+
+            triggers = np.array(filtered_triggers)
+            logger.info(f"After dead_time filter: {len(triggers)} events")
+
+        return triggers
+    
+    def detect_file(self, filepath: str) -> Tuple[Stream, np.ndarray, List[Tuple[int, int]]]:
         """
         Detect events in a single seismic file.
         
@@ -154,8 +227,6 @@ class EventDetector:
         ----------
         filepath : str
             Path to seismic data file (supports ObsPy readable formats)
-        min_event_duration : float
-            Minimum event duration in seconds (default: 0.0)
             
         Returns
         -------
@@ -181,27 +252,24 @@ class EventDetector:
         df = tr.stats.sampling_rate
         sta_samples = int(self.sta_seconds * df)
         lta_samples = int(self.lta_seconds * df)
-
+        
         if self.method == "multi_window":
-            logger.info(f"Computing multi_window STA/LTA (delta_sta={self.delta_sta}, "
-                        f"delta_lta={self.delta_lta}, epsilon={self.epsilon})")
-            cft = multi_sta_lta(tr.data, sta_samples, lta_samples,
-                                self.delta_sta, self.delta_lta, self.epsilon)
-        else: # classic
+            logger.info(f"Computing multi-window STA/LTA (delta_sta={self.delta_sta}, "
+                       f"delta_lta={self.delta_lta}, epsilon={self.epsilon})")
+            cft = multi_sta_lta(tr.data, sta_samples, lta_samples, 
+                               self.delta_sta, self.delta_lta, self.epsilon)
+        else:  # classic
             logger.info("Computing classic STA/LTA")
             cft = classic_sta_lta(tr.data, sta_samples, lta_samples)
+        
         # Detect triggers
         triggers = trigger_onset(cft, self.threshold_on, self.threshold_off)
-
-        # Filter by minimum duration
-        if min_event_duration > 0:
-            min_samples = int(min_event_duration * df)
-            triggers = np.array([
-                [onset, offset] for onset, offset in triggers
-                if (offset - onset) >= min_samples
-            ])
+        logger.info(f"Initial triggers detected: {len(triggers)}")
         
-        logger.info(f"Found {len(triggers)} events using {self.method} method")
+        # Apply filters
+        triggers = self._apply_filters(triggers, df)
+        
+        logger.info(f"Final event count: {len(triggers)} events using {self.method} method")
         return st, cft, triggers
     
     def detect_directory(
@@ -255,6 +323,8 @@ class EventDetector:
         threshold_on: float = 2.5,
         threshold_off: float = 1.2,
         highpass_freq: Optional[float] = 1.0,
+        min_event_duration: float = 0.0
+        dead_time: float = 0.0
     ) -> "EventDetector":
         """
         Create detector configured for multi-window STA/LTA.
@@ -277,6 +347,10 @@ class EventDetector:
             Trigger OFF threshold (default: 1.2)
         highpass_freq : float, optional
             Highpass filter frequency in Hz (default: 1.0)
+        min_event_duration : float
+            Minimum event duration in seconds (default: 0.0)
+        dead_time : float
+            Dead time after event in seconds (default: 0.0)
             
         Returns
         -------
@@ -285,8 +359,11 @@ class EventDetector:
             
         Examples
         --------
-        >>> detector = EventDetector.create_multi_window()
-        >>> st, cft, triggers = detector.detect_file("data.mseed")
+        >>> detector = EventDetector.create_multi_window(
+        ...     min_event_duration=0.5,
+        ...     dead_time=1.2
+        ... )
+        >>> st, cft, triggers = detector.detect_file("data.sac")
         """
         return cls(
             sta_seconds=sta_seconds,
@@ -298,6 +375,8 @@ class EventDetector:
             delta_sta=delta_sta,
             delta_lta=delta_lta,
             epsilon=epsilon,
+            min_event_duration=min_event_duration,
+            dead_time=dead_time,
         )
     
     @classmethod
@@ -308,6 +387,8 @@ class EventDetector:
         threshold_on: float = 25.0,
         threshold_off: float = 3.0,
         highpass_freq: Optional[float] = 1.0,
+        min_event_duration: float = 0.0,
+        dead_time: float = 0.0,
     ) -> "EventDetector":
         """
         Create detector configured for classic STA/LTA.
@@ -324,6 +405,10 @@ class EventDetector:
             Trigger OFF threshold (default: 3.0)
         highpass_freq : float, optional
             Highpass filter frequency in Hz (default: 1.0)
+        min_event_duration : float
+            Minimum event duration in seconds (default: 0.0)
+        dead_time : float
+            Dead time after event in seconds (default: 0.0)
             
         Returns
         -------
@@ -332,7 +417,10 @@ class EventDetector:
             
         Examples
         --------
-        >>> detector = EventDetector.create_classic()
+        >>> detector = EventDetector.create_classic(
+        ...     min_event_duration=1.0,
+        ...     dead_time=5.0
+        ... )
         >>> st, cft, triggers = detector.detect_file("data.mseed")
         """
         return cls(
@@ -342,4 +430,6 @@ class EventDetector:
             threshold_off=threshold_off,
             highpass_freq=highpass_freq,
             method="classic",
+            min_event_duration=min_event_duration,
+            dead_time=dead_time,
         )
