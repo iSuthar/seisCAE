@@ -2,14 +2,68 @@
 
 import numpy as np
 from obspy import read, Stream
-from obspy.signal.trigger import classic_sta_lta, trigger_onset
+from obspy.signal.trigger import classic_sta_lta, recursive_sta_lta, trigger_onset
 from typing import List, Tuple, Optional
 from pathlib import Path
 import logging
 
 logger = logging.getLogger(__name__)
 
-
+def multi_sta_lta(a, nsta, nlta, delta_sta, delta_lta, epsilon):
+    """
+    Multiple time window STA/LTA written in Python.
+    
+    Parameters
+    ----------
+    a : np.ndarray
+        Seismic Trace
+    nsta : int
+        Length of minimum (or maximum) duration short time average window in samples
+    nlta : int
+        Length of maximum (or maximum) duration long time average window in samples
+    delta_sta : float
+        Ratio between the length of the longest and shortest time windows for the short 
+        time average; positive gives longer durations than nsta, negative gives shorter durations
+    delta_lta : float
+        Ratio between the length of the longest and shortest time windows for the long 
+        time average; positive gives longer durations than nlta, negative gives shorter durations
+    epsilon : float
+        Maximum ratio between length of adjacent short time windows
+    
+    Returns
+    -------
+    charfct : np.ndarray
+        Characteristic function of recursive STA/LTA
+    """
+    # determine the number of time windows
+    if (delta_sta == 1 and delta_lta == 1) or delta_sta <= 0 or delta_lta <= 0:
+        nwindows = 1
+    else:
+        # determine minimum number of time windows for specified epsilon ratio
+        nwindows_sta = int(np.log(max(delta_sta, 1./delta_sta))/np.log(max(epsilon, 1./epsilon)) + 1)
+        nwindows_lta = int(np.log(max(delta_lta, 1./delta_lta))/np.log(max(epsilon, 1./epsilon)) + 1)
+        nwindows = max(nwindows_sta, nwindows_lta)
+        # find exact value of the epsilon ratio for this integer number of time windows
+        epsilon_sta = np.exp(np.log(delta_sta)/(nwindows - 1))
+        epsilon_lta = np.exp(np.log(delta_lta)/(nwindows - 1))
+    # compute the characteristic function of the STA/LTA for each time window
+    charfct = np.zeros(len(a))
+    for i in range(0, nwindows):
+        # determine the length of the short time and long time average window in samples
+        if nwindows == 1:
+            nsta_tmp = nsta
+            nlta_tmp = nlta
+        else:
+            nsta_tmp = int(nsta*epsilon_sta**i)
+            nlta_tmp = max(nsta_tmp, int(nlta*epsilon_lta**i))
+        # call recursive_sta_lta function; this can be changed to another STA/LTA algorithm
+        charfct_tmp = recursive_sta_lta(a, nsta_tmp, nlta_tmp)
+        # flag initial time steps for the longer duration STA/LTAs as STA is often larger than LTA
+        if (i > 0 and epsilon_lta > 1) or (i < nwindows - 1 and epsilon_lta < 1):
+            charfct_tmp[0:int((nsta_tmp + nlta_tmp)/2)] = 0
+        charfct = np.maximum(charfct, charfct_tmp)
+    return charfct
+    
 class EventDetector:
     """
     Detect seismic events using STA/LTA trigger algorithm.
