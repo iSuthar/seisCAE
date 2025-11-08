@@ -1,234 +1,183 @@
+<div align="center">
+
 # seisCAE 🌍
 
-**Seismic Convolutional AutoEncoder** - A modular Python package for clustering seismic events using deep learning.
+**A modular Python package for clustering seismic events using Convolutional Autoencoders.**
 
 [![PyPI version](https://badge.fury.io/py/seisCAE.svg)](https://badge.fury.io/py/seisCAE)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
+[![Tests](https://github.com/iSuthar/seisCAE/actions/workflows/test.yml/badge.svg)](https://github.com/iSuthar/seisCAE/actions/workflows/test.yml)
 
-## 🎯 Features
+</div>
 
-- **Event Detection**: STA/LTA trigger algorithm for seismic event detection
-- **Deep Learning**: Convolutional autoencoder for feature extraction from spectrograms
-- **Clustering**: GMM-based clustering with automatic cluster selection using BIC
-- **Visualization**: Comprehensive diagnostic plots and cluster analysis
-- **Modular Design**: Use individual components or full pipeline
-- **Easy to Extend**: Add custom models and clustering algorithms
-- **CLI & API**: Both command-line and Python API interfaces
+`seisCAE` provides an end-to-end toolkit for unsupervised seismic event analysis. It automates the process of detecting events from continuous seismic data, extracting meaningful features using a convolutional autoencoder, and grouping similar events with a Gaussian Mixture Model.
+
+---
+
+## 🎯 Core Features
+
+-   **Automated Event Detection**: Employs the classic STA/LTA trigger algorithm to find potential seismic events in raw data streams.
+-   **Deep Learning Feature Extraction**: Trains a convolutional autoencoder on event spectrograms to learn a compressed, low-dimensional representation of the data.
+-   **Unsupervised Clustering**: Uses a Gaussian Mixture Model (GMM) with automatic cluster number selection (via BIC) to group events.
+-   **Rich Visualization**: Generates a suite of diagnostic plots for evaluating detection, training, and clustering results.
+-   **Modular & Extensible**: Each component (detector, model, clusterer) can be used independently or as part of the main pipeline.
+-   **Dual Interface**: Accessible through both a powerful Command-Line Interface (CLI) and a flexible Python API.
 
 ## 📦 Installation
 
-### From PyPI (when published)
+You can install `seisCAE` directly from PyPI or from the source for development.
+
+### From PyPI
 
 ```bash
-pip install seisCAE
+pip install seiscae
 ```
 
-### From source (for development)
+### From Source
 
 ```bash
 # Clone the repository
 git clone https://github.com/iSuthar/seisCAE.git
 cd seisCAE
 
-# Create virtual environment
+# Create and activate a virtual environment
 python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
+source venv/bin/activate  # On Windows use `venv\Scripts\activate`
 
-# Install in development mode
+# Install in editable mode with development dependencies
 pip install -e ".[dev]"
 ```
 
 ## 🚀 Quick Start
 
-### Command Line Interface
+Get started immediately using the CLI for a full pipeline run or use the Python API for more granular control.
+
+### Command-Line Interface (CLI)
+
+The CLI is the quickest way to process your data. Run the full pipeline with a single command, pointing to your data directory and a configuration file.
 
 ```bash
-# Full pipeline
-seiscae run --config configs/default.yaml --data /path/to/data --output ./results
+seiscae run --config configs/default.yaml --data /path/to/your/data --output ./results
+```
 
-# Individual stages
-seiscae detect --data /path/to/data --output ./results
-seiscae train --spectrograms ./results/spectrograms --output ./models
+You can also run individual stages:
+
+```bash
+# 1. Detect events from raw data
+seiscae detect --data /path/to/your/data --output ./results/detections
+
+# 2. Train the autoencoder on the resulting spectrograms
+seiscae train --spectrograms ./results/detections/spectrograms.npy --output ./models
+
+# 3. Cluster events using the trained model's features
 seiscae cluster --features ./models/features.npy --output ./clusters
 ```
 
-### Python API - Full Pipeline
+### Python API
+
+The Python API offers maximum flexibility for integration into custom workflows.
+
+#### Full Pipeline Example
 
 ```python
-from seiscae import Pipeline, load_config
+from seiscae.pipeline import Pipeline
+from seiscae.utils.config import load_config
 
-# Load configuration
+# Load configuration from a YAML file
 config = load_config("configs/default.yaml")
 
-# Run full pipeline
+# Initialize and run the full pipeline
 pipeline = Pipeline(config)
-results = pipeline.run(data_path="/path/to/seismic/data")
+results = pipeline.run(data_path="/path/to/your/data")
 
-# Access results
-print(f"Detected {results.n_events} events")
-print(f"Found {results.n_clusters} clusters")
+# Inspect the results
+print(f"Detected {results.n_events} events.")
+print(f"Found {results.n_clusters} distinct clusters.")
 
-# Get events from a specific cluster
-cluster_0 = results.get_cluster(0)
-print(f"Cluster 0 has {len(cluster_0)} events")
-```
-
-### Python API - Modular Usage
-
-```python
-from seiscae.core import EventDetector
-from seiscae.models import ConvAutoencoder
-from seiscae.clustering import GMMClusterer
-from seiscae.training import AutoencoderTrainer
-import torch
-
-# Step 1: Detect events
-detector = EventDetector(sta_seconds=0.5, lta_seconds=30.0)
-results = detector.detect_directory("/path/to/data")
-
-# Step 2: Train autoencoder
-model = ConvAutoencoder(latent_dim=16)
-trainer = AutoencoderTrainer(model, device=torch.device('cuda:0'))
-history = trainer.train(spectrograms, epochs=300)
-
-# Step 3: Extract features
-features = trainer.extract_features(spectrograms)
-
-# Step 4: Cluster
-clusterer = GMMClusterer(n_clusters=None)  # Auto-select
-labels = clusterer.fit_predict(features)
-```
-
-## 📊 Workflow
-
-```
-Raw Seismic Data
-      ↓
-[Event Detection] → STA/LTA Trigger
-      ↓
-[Spectrogram Generation] → STFT
-      ↓
-[Autoencoder Training] → Feature Extraction
-      ↓
-[GMM Clustering] → Event Grouping
-      ↓
-Results & Visualizations
+# Access events from a specific cluster
+cluster_0_events = results.get_cluster(0)
+print(f"Cluster 0 contains {len(cluster_0_events)} events.")
 ```
 
 ## 🔧 Configuration
 
-Create a YAML configuration file:
+Pipeline behavior is controlled by a single `config.yaml` file. Customize parameters for detection, spectrograms, model architecture, training, and clustering.
 
 ```yaml
-# config.yaml
+# configs/default.yaml
+
+# Event detection parameters
 detection:
   sta_seconds: 0.5
   lta_seconds: 30.0
   threshold_on: 25.0
   threshold_off: 3.0
 
+# Spectrogram generation settings
 spectrogram:
   nperseg: 128
   freq_min: 1.0
   freq_max: 50.0
 
+# Model architecture
 model:
   latent_dim: 16
   dropout: 0.1
 
+# Training loop parameters
 training:
   epochs: 300
   batch_size: 128
   learning_rate: 0.0001
-  patience: 20
+  patience: 20  # For early stopping
 
+# Clustering algorithm settings
 clustering:
   algorithm: gmm
-  n_clusters: null  # Auto-select
+  n_clusters: null  # Set to null for automatic selection via BIC
 
+# Input/Output paths
 io:
   output_base: "./results"
 ```
 
-## 📚 Documentation
-
-- **Quick Start Guide**: See `examples/notebooks/01_quickstart.ipynb`
-- **API Reference**: See docstrings in code
-- **Custom Models**: See `examples/notebooks/02_custom_models.ipynb`
-- **Advanced Clustering**: See `examples/notebooks/03_advanced_clustering.ipynb`
-
 ## 🧪 Testing
+
+We use `pytest` for testing. To run the test suite:
 
 ```bash
 # Run all tests
 pytest
 
-# Run with coverage
+# Run tests with code coverage report
 pytest --cov=seiscae --cov-report=html
-
-# Run specific test
-pytest tests/test_detection.py
 ```
 
 ## 🤝 Contributing
 
-Contributions are welcome! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
-
-### Development Setup
-
-```bash
-# Install development dependencies
-pip install -e ".[dev]"
-
-# Format code
-black seiscae/
-isort seiscae/
-
-# Run linter
-flake8 seiscae/
-
-# Type checking
-mypy seiscae/
-```
+Contributions are welcome! Please read our [CONTRIBUTING.md](CONTRIBUTING.md) guide to get started with setting up the development environment and our pull request process.
 
 ## 📝 Citation
 
-If you use seisCAE in your research, please cite:
+If you use `seisCAE` in your research, please cite it as follows:
 
 ```bibtex
 @software{seiscae2025,
   author = {Suthar, Ankit},
-  title = {seisCAE: Clustering Seismic Events with Convolutional Autoencoders},
+  title = {seisCAE: A Python Package for Seismic Event Clustering with Convolutional Autoencoders},
   year = {2025},
+  publisher = {GitHub},
+  journal = {GitHub repository},
   url = {https://github.com/iSuthar/seisCAE}
 }
 ```
 
 ## 📄 License
 
-MIT License - see [LICENSE](LICENSE) file for details.
+This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
 
 ## 🙏 Acknowledgments
 
-- Built with [PyTorch](https://pytorch.org/)
-- Seismic data handling with [ObsPy](https://obspy.org/)
-
-## 📧 Contact
-
-- **Author**: Ankit Suthar
-- **GitHub**: [@iSuthar](https://github.com/iSuthar)
-- **Issues**: [GitHub Issues](https://github.com/iSuthar/seisCAE/issues)
-
-## 🗺️ Roadmap
-
-- [ ] Add support for more autoencoder architectures (VAE, ResNet-AE)
-- [ ] Implement additional clustering algorithms (DBSCAN, HDBSCAN)
-- [ ] GPU acceleration for spectrogram generation
-- [ ] Real-time event detection
-- [ ] Web-based visualization dashboard
-- [ ] Pre-trained models for common seismic scenarios
-
----
-
-**Made with ❤️ for the seismology and machine learning community**
+-   Built with [PyTorch](https://pytorch.org/) for deep learning.
+-   Seismic data processing powered by [ObsPy](https://obspy.org/).
