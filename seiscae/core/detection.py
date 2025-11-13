@@ -133,7 +133,7 @@ class EventDetector:
         delta_lta: float = 20.0,
         epsilon: float = 2.0,
         min_event_duration: float = 0.0,
-        dead_time: flaot = 1.0,
+        dead_time: float = 1.0,
     ):
         self.sta_seconds = sta_seconds
         self.lta_seconds = lta_seconds
@@ -189,7 +189,7 @@ class EventDetector:
 
         Returns
         -------
-        filterd_triggers : np.ndarray
+        filtered_triggers : np.ndarray
             Filtered array of (onset, offset) trigger pairs
         """
         if len(triggers) == 0:
@@ -210,7 +210,7 @@ class EventDetector:
             filtered_triggers = [triggers[0]] # Always keep the first trigger
 
             for i in range(1, len(triggers)):
-                # Check if this trigger starts after the dead tiem from the last accepted trigger
+                # Check if this trigger starts after the dead time from the last accepted trigger
                 if triggers[i][0] >= (filtered_triggers[-1][1] + dead_time_samples):
                     filtered_triggers.append(triggers[i])
 
@@ -323,8 +323,8 @@ class EventDetector:
         threshold_on: float = 2.5,
         threshold_off: float = 1.2,
         highpass_freq: Optional[float] = 1.0,
-        min_event_duration: float = 0.0
-        dead_time: float = 0.0
+        min_event_duration: float = 0.0,
+        dead_time: float = 0.0,
     ) -> "EventDetector":
         """
         Create detector configured for multi-window STA/LTA.
