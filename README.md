@@ -17,7 +17,7 @@
 
 ## 🎯 Core Features
 
--   **Automated Event Detection**: Employs the classic STA/LTA trigger algorithm to find potential seismic events in raw data streams.
+-   **Automated Event Detection**: Employs the classic STA/LTA trigger as well as multi-window STA/LTA algorithm(choice) to find potential seismic events in raw data streams.
 -   **Deep Learning Feature Extraction**: Trains a convolutional autoencoder on event spectrograms to learn a compressed, low-dimensional representation of the data.
 -   **Unsupervised Clustering**: Uses a Gaussian Mixture Model (GMM) with automatic cluster number selection (via BIC) to group events.
 -   **Rich Visualization**: Generates a suite of diagnostic plots for evaluating detection, training, and clustering results.
