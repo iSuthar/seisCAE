@@ -47,20 +47,91 @@ class SpectrogramGenerator:
         freq_max: float = 50.0,
         time_bins: int = 40,
         freq_bins: int = 256,
+        window_seconds: float = 4.0,
     ):
         self.nperseg = nperseg
+        self.noverlap_ratio = noverlap_ratio
         self.noverlap = int(nperseg * noverlap_ratio)
         self.nfft = nfft
         self.freq_min = freq_min
         self.freq_max = freq_max
         self.time_bins = time_bins
         self.freq_bins = freq_bins
+        self.window_seconds = window_seconds
+        
+        # Validate parameters
+        self._validate_parameters()
+    
+    def _validate_parameters(self) -> None:
+        """Validate STFT and spectrogram parameters."""
+        if self.noverlap >= self.nperseg:
+            raise ValueError(
+                f"noverlap ({self.noverlap}) must be < nperseg ({self.nperseg})"
+            )
+        if self.nfft < self.nperseg:
+            raise ValueError(
+                f"nfft ({self.nfft}) must be >= nperseg ({self.nperseg})"
+            )
+        if self.freq_min >= self.freq_max:
+            raise ValueError(
+                f"freq_min ({self.freq_min}) must be < freq_max ({self.freq_max})"
+            )
+        if self.window_seconds <= 0:
+            raise ValueError(
+                f"window_seconds ({self.window_seconds}) must be positive"
+            )
+        if self.time_bins <= 0 or self.freq_bins <= 0:
+            raise ValueError(
+                "time_bins and freq_bins must be positive integers"
+            )
+    
+    def _find_center_time(self, trace: Trace) -> float:
+        """
+        Find time of maximum energy for centering using quick STFT.
+        
+        Matches research paper implementation:
+        - Uses nperseg=64 (shorter window for quick detection)
+        - Finds maximum in time-frequency spectrogram
+        - Centers 4-second window on this maximum
+        
+        Parameters
+        ----------
+        trace : obspy.Trace
+            Input seismic trace
+            
+        Returns
+        -------
+        center_time : obspy.UTCDateTime
+            UTCDateTime of the center time for window extraction
+        """
+        df = trace.stats.sampling_rate
+        
+        # If trace too short, use start time
+        if len(trace.data) < 128:
+            logger.warning(f"Trace too short ({len(trace.data)} samples), using starttime")
+            return trace.stats.starttime
+        
+        # Quick STFT with 64-sample segments (research paper parameters)
+        f1, t1, zxx1 = stft(
+            trace.data,
+            fs=df,
+            nperseg=64,
+            noverlap=int(64 * 0.9),
+            nfft=512
+        )
+        
+        # Find location of maximum amplitude in time-frequency space
+        j, k = np.where(np.abs(zxx1) == np.max(np.abs(zxx1)))
+        center_time = trace.stats.starttime + t1[k[0]]
+        
+        logger.debug(f"Center time found at {center_time} (offset: {t1[k[0]]}s)")
+        
+        return center_time
     
     def generate(
         self, 
         trace: Trace, 
         center_time: Optional[float] = None,
-        window_seconds: float = 4.0
     ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         """
         Generate spectrogram from trace.
@@ -71,8 +142,6 @@ class SpectrogramGenerator:
             Seismic trace
         center_time : float, optional
             Center time for window. If None, uses max amplitude
-        window_seconds : float
-            Window size in seconds (default: 4.0 for ±2s)
             
         Returns
         -------
@@ -85,22 +154,50 @@ class SpectrogramGenerator:
         """
         df = trace.stats.sampling_rate
         
+        # Validate freq_max against Nyquist frequency
+        nyquist = df / 2.0
+        if self.freq_max > nyquist:
+            logger.warning(
+                f"freq_max ({self.freq_max} Hz) exceeds Nyquist frequency "
+                f"({nyquist} Hz). Clamping to Nyquist."
+            )
+            effective_freq_max = nyquist
+        else:
+            effective_freq_max = self.freq_max
+        
         # Determine center time
         if center_time is None:
             center_time = self._find_center_time(trace)
         
         # Extract window
         tr_window = trace.copy()
-        half_window = window_seconds / 2
+        half_window = self.window_seconds / 2
         tr_window.trim(center_time - half_window, center_time + half_window)
         
-        # Validate window length
-        expected_samples = int(window_seconds * df) + 1
-        if len(tr_window.data) != expected_samples:
-            logger.warning(
-                f"Window length mismatch: got {len(tr_window.data)}, "
-                f"expected {expected_samples}"
-            )
+        # Validate and fix window length
+        expected_samples = int(self.window_seconds * df) + 1
+        actual_samples = len(tr_window.data)
+        
+        if actual_samples != expected_samples:
+            if actual_samples < expected_samples * 0.9:
+                # More than 10% short - this is a problem
+                raise ValueError(
+                    f"Insufficient data for spectrogram: got {actual_samples} samples, "
+                    f"expected {expected_samples} (window={self.window_seconds}s at {df} Hz)"
+                )
+            elif actual_samples < expected_samples:
+                # Pad to expected length
+                logger.warning(
+                    f"Padding window: got {actual_samples}, expected {expected_samples}"
+                )
+                padding = expected_samples - actual_samples
+                tr_window.data = np.pad(tr_window.data, (0, padding), mode='constant')
+            else:
+                # Truncate to expected length
+                logger.warning(
+                    f"Truncating window: got {actual_samples}, expected {expected_samples}"
+                )
+                tr_window.data = tr_window.data[:expected_samples]
         
         # Compute STFT
         f, t, zxx = stft(
@@ -111,10 +208,14 @@ class SpectrogramGenerator:
             nfft=self.nfft
         )
         
+        # Remove DC component (research paper: f2 = f2[1:]; amp_zxx = np.abs(zxx2)[1:])
+        f = f[1:]
+        amp_zxx = np.abs(zxx)[1:]
+        
         # Filter frequencies
-        freq_mask = (f >= self.freq_min) & (f <= self.freq_max)
+        freq_mask = (f >= self.freq_min) & (f <= effective_freq_max)
         f = f[freq_mask]
-        amp_zxx = np.abs(zxx)[freq_mask, :]
+        amp_zxx = amp_zxx[freq_mask, :]
         
         # Resample to target dimensions
         amp_zxx = self._resample_spectrogram(amp_zxx, t, f)
@@ -123,29 +224,10 @@ class SpectrogramGenerator:
         amp_zxx = self._normalize(amp_zxx)
         
         # Generate target arrays for output
-        t_out = np.linspace(0.0, window_seconds, self.time_bins)
-        f_out = np.linspace(self.freq_min, self.freq_max, self.freq_bins)
+        t_out = np.linspace(0.0, self.window_seconds, self.time_bins)
+        f_out = np.linspace(self.freq_min, effective_freq_max, self.freq_bins)
         
         return f_out, t_out, amp_zxx
-    
-    def _find_center_time(self, trace: Trace) -> float:
-        """Find time of maximum amplitude in spectrogram."""
-        df = trace.stats.sampling_rate
-        
-        if len(trace.data) < 128:
-            return trace.stats.starttime
-        
-        # Quick STFT to find max
-        f, t, zxx = stft(
-            trace.data,
-            fs=df,
-            nperseg=64,
-            noverlap=int(64 * 0.9),
-            nfft=512
-        )
-        
-        j, k = np.where(np.abs(zxx) == np.max(np.abs(zxx)))
-        return trace.stats.starttime + t[k][0]
     
     def _resample_spectrogram(
         self, 
@@ -155,12 +237,12 @@ class SpectrogramGenerator:
     ) -> np.ndarray:
         """Resample spectrogram to target dimensions."""
         # Time resampling
-        target_t = np.linspace(0.0, 4.0, self.time_bins)
+        target_t = np.linspace(0.0, self.window_seconds, self.time_bins)
         
         if len(t) != self.time_bins:
             t_start = t[0]
             t_end = t[-1] if t[-1] > t_start else (t_start + 1e-9)
-            scaled_t = (t - t_start) * (4.0 / (t_end - t_start))
+            scaled_t = (t - t_start) * (self.window_seconds / (t_end - t_start))
             
             amp_resampled = np.zeros((amp_zxx.shape[0], self.time_bins))
             for i in range(amp_zxx.shape[0]):
@@ -183,8 +265,13 @@ class SpectrogramGenerator:
         """Normalize spectrogram to [0, 1]."""
         amp_zxx = amp_zxx - np.min(amp_zxx)
         max_val = np.max(amp_zxx)
-        if max_val > 0:
+        if max_val > 1e-10:  # Use epsilon to avoid division by near-zero
             amp_zxx = amp_zxx / max_val
+        else:
+            logger.warning(
+                "Spectrogram has near-zero amplitude range, returning zeros"
+            )
+            amp_zxx = np.zeros_like(amp_zxx)
         return amp_zxx
 
 
@@ -241,15 +328,18 @@ class EventExtractor:
                 end_time = t + offset / df
                 duration = (offset - onset) / df
                 
-                # Trim trace
+                # Trim trace to event window
                 tr_event = trace.copy()
                 tr_event.trim(start_time, end_time)
                 
-                # Calculate energy
+                # Calculate RMS energy (research paper approach)
                 energy = np.sqrt(np.mean(tr_event.data ** 2))
                 
-                # Generate spectrogram
-                center = start_time + duration / 2
+                # Find center time using max energy in spectrogram
+                # This matches research paper: center on max spectrogram amplitude
+                center = self.spec_gen._find_center_time(tr_event)
+                
+                # Generate spectrogram centered on max energy point
                 f, t_spec, amp_zxx = self.spec_gen.generate(trace, center_time=center)
                 
                 # Create event metadata
@@ -271,8 +361,16 @@ class EventExtractor:
                 
                 events.append(event)
                 
+            except (ValueError, IndexError) as e:
+                logger.warning(
+                    f"Skipping event at {onset}-{offset} due to data issue: {e}"
+                )
+                continue
             except Exception as e:
-                logger.error(f"Error extracting event at {onset}-{offset}: {e}")
+                logger.error(
+                    f"Unexpected error extracting event at {onset}-{offset}: {e}",
+                    exc_info=True
+                )
                 continue
         
         return events

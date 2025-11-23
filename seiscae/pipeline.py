@@ -14,7 +14,15 @@ from .core.catalog import EventCatalog
 from .models import get_model
 from .training.trainer import AutoencoderTrainer
 from .clustering import get_clusterer
+from .clustering.metrics_phase3 import SpectrogramMetrics, ClusterAnalyzer
 from .visualization import Visualizer
+from .visualization.training_diagnostics import (
+    plot_loss_curves_detailed,
+    plot_reconstruction_comparison,
+    plot_cluster_grid,
+    plot_cluster_feature_heatmap,
+    plot_distance_distributions,
+)
 from .config import ConfigManager
 from .utils.device import get_device
 
@@ -74,6 +82,13 @@ class Pipeline:
             lta_seconds=self.config.get('detection.lta_seconds'),
             threshold_on=self.config.get('detection.threshold_on'),
             threshold_off=self.config.get('detection.threshold_off'),
+            highpass_freq=self.config.get('detection.highpass_freq'),
+            method=self.config.get('detection.method'),
+            delta_sta=self.config.get('detection.delta_sta'),
+            delta_lta=self.config.get('detection.delta_lta'),
+            epsilon=self.config.get('detection.epsilon'),
+            min_event_duration=self.config.get('detection.min_event_duration'),
+            dead_time=self.config.get('detection.dead_time'),
         )
         
         # Spectrogram generator
@@ -85,6 +100,7 @@ class Pipeline:
             freq_max=self.config.get('spectrogram.freq_max'),
             time_bins=self.config.get('spectrogram.time_bins'),
             freq_bins=self.config.get('spectrogram.freq_bins'),
+            window_seconds=self.config.get('spectrogram.window_seconds'),
         )
         
         # Event extractor
@@ -159,6 +175,11 @@ class Pipeline:
         if not skip_clustering:
             logger.info("\n[Stage 5/5] Clustering")
             self.cluster_events()
+            
+            # Phase 3: Post-clustering analysis
+            if self.config.get('phase3.compute_metrics', False):
+                logger.info("\n[Phase 3] Post-Clustering Analysis")
+                self.run_phase3_analysis(output_path)
         
         # Save results
         logger.info("\nSaving results...")
@@ -166,12 +187,7 @@ class Pipeline:
         
         # Generate visualizations
         logger.info("\nGenerating visualizations...")
-        self.visualizer.plot_all(
-            catalog=self.catalog,
-            features=self.features,
-            labels=self.labels,
-            output_dir=output_path / "visualizations",
-        )
+        self.generate_visualizations(output_path)
         
         logger.info("=" * 80)
         logger.info("Pipeline Complete!")
@@ -187,30 +203,85 @@ class Pipeline:
         )
     
     def detect_events(self, data_path: str, output_path: Path) -> None:
-        """Stage 1: Detect events and generate spectrograms."""
+        """
+        Stage 1: Detect events and generate spectrograms.
+        
+        Supports flexible directory structures:
+        - Flat: all files in data_path
+        - Component-based: files organized by component subdirectories
+        - Mixed: combination of both
+        
+        The method will attempt to process files based on the 'components'
+        configuration. If component subdirectories don't exist, it falls back
+        to processing all files in the main directory.
+        """
         components = self.config.get('components', ['EHZ'])
+        file_pattern = self.config.get('io.file_pattern', '*')
+        recursive_search = self.config.get('io.recursive_search', False)
         
         all_events = []
+        data_path_obj = Path(data_path)
         
-        for component in components:
-            logger.info(f"Processing component: {component}")
-            
-            # Detect events
-            results = self.detector.detect_directory(
-                directory=data_path,
-                component=component,
-                pattern="*",
+        # Check if component-based structure exists
+        component_dirs_exist = all(
+            (data_path_obj / comp).exists() for comp in components
+        )
+        
+        if component_dirs_exist:
+            # Process by component subdirectories
+            logger.info("Processing component-based directory structure")
+            for component in components:
+                logger.info(f"Processing component: {component}")
+                
+                results = self.detector.detect_directory(
+                    directory=data_path,
+                    component=component,
+                    pattern=file_pattern,
+                    recursive=recursive_search,
+                )
+                
+                # Extract events and generate spectrograms
+                for filepath, stream, cft, triggers in tqdm(results, desc=f"{component} events"):
+                    trace = stream[0]
+                    events = self.event_extractor.extract_events(trace, triggers, component)
+                    all_events.extend(events)
+                    
+                    # Optional: Save diagnostic plots
+                    if self.config.get('io.save_diagnostics'):
+                        diag_path = output_path / "diagnostics" / component
+                        diag_path.mkdir(parents=True, exist_ok=True)
+                        self.visualizer.plot_detection_summary(
+                            trace, cft, triggers,
+                            save_path=diag_path / f"{Path(filepath).stem}.png"
+                        )
+        else:
+            # Process flat directory structure - all files in one directory
+            logger.info(
+                "Component subdirectories not found. "
+                "Processing all files in flat directory structure."
             )
             
-            # Extract events and generate spectrograms
-            for filepath, stream, cft, triggers in tqdm(results, desc=f"{component} events"):
+            results = self.detector.detect_directory(
+                directory=data_path,
+                component=None,
+                pattern=file_pattern,
+                recursive=recursive_search,
+            )
+            
+            # Extract events without component-specific labeling
+            # Try to infer component from channel name if possible
+            for filepath, stream, cft, triggers in tqdm(results, desc="Processing files"):
                 trace = stream[0]
+                # Try to extract component from channel name (e.g., BHZ -> Z, EHN -> N)
+                channel = trace.stats.channel
+                component = channel[-1] if channel else "Z"  # Default to Z
+                
                 events = self.event_extractor.extract_events(trace, triggers, component)
                 all_events.extend(events)
                 
                 # Optional: Save diagnostic plots
                 if self.config.get('io.save_diagnostics'):
-                    diag_path = output_path / "diagnostics" / component
+                    diag_path = output_path / "diagnostics"
                     diag_path.mkdir(parents=True, exist_ok=True)
                     self.visualizer.plot_detection_summary(
                         trace, cft, triggers,
@@ -268,18 +339,175 @@ class Pipeline:
             self.config.get('clustering.algorithm'),
             n_clusters=self.config.get('clustering.n_clusters'),
             covariance_type=self.config.get('clustering.covariance_type'),
-            max_clusters=self.config.get('clustering.max_clusters'),
         )
         
         self.labels = self.clusterer.fit_predict(self.features)
         logger.info(f"Clustering complete: {self.clusterer.n_clusters} clusters")
+    
+    def run_phase3_analysis(self, output_path: Path) -> None:
+        """
+        Phase 3: Post-clustering analysis with physical metrics.
         
-        # Plot GMM selection metrics if auto-selected
-        if self.clusterer.selection_metrics_:
-            self.visualizer.plot_gmm_metrics(
-                self.clusterer.selection_metrics_,
-                save_path=Path(self.config.get('io.output_base')) / "visualizations" / "gmm_selection.png"
+        Computes spectral and temporal metrics from spectrograms,
+        calculates distances to cluster centers, suggests cluster
+        merges, and exports complete analysis to Excel.
+        """
+        logger.info("Computing Phase 3 metrics...")
+        
+        # Get cluster centers
+        cluster_centers = self.clusterer.get_cluster_centers(original_scale=False)
+        
+        # Initialize analyzer
+        analyzer = ClusterAnalyzer(
+            labels=self.labels,
+            features=self.features,
+            cluster_centers=cluster_centers,
+        )
+        
+        # Get spectrograms and frequency bins
+        spectrograms = np.array([event['spectrogram'] for event in self.catalog.events])
+        
+        # Generate frequency bins for metrics
+        freq_min = self.config.get('spectrogram.freq_min')
+        freq_max = self.config.get('spectrogram.freq_max')
+        freq_bins_count = self.config.get('spectrogram.freq_bins')
+        freq_bins = np.linspace(freq_min, freq_max, freq_bins_count)
+        
+        # Compute metrics for all spectrograms
+        metrics_df = analyzer.compute_cluster_metrics(spectrograms, freq_bins)
+        
+        # Compute distances to centers
+        distances = analyzer.compute_distances_to_centers()
+        
+        # Get cluster statistics
+        cluster_stats = analyzer.get_cluster_statistics(metrics_df)
+        logger.info(f"Cluster statistics computed for {len(cluster_stats)} clusters")
+        
+        # Suggest merges if enabled
+        if self.config.get('phase3.suggest_merges', False):
+            threshold = self.config.get('phase3.merge_threshold', 0.2)
+            suggestions = analyzer.suggest_merges(cluster_stats, threshold=threshold)
+            
+            if suggestions:
+                logger.info(f"Suggested {len(suggestions)} cluster merges:")
+                for c1, c2, sim in suggestions[:10]:  # Show top 10
+                    logger.info(f"  Clusters {c1} <-> {c2} (similarity: {sim:.4f})")
+                
+                # Save suggestions
+                suggestions_df = pd.DataFrame(
+                    suggestions,
+                    columns=['cluster_1', 'cluster_2', 'similarity']
+                )
+                suggestions_path = output_path / "cluster_merge_suggestions.csv"
+                suggestions_df.to_csv(suggestions_path, index=False)
+                logger.info(f"Merge suggestions saved to {suggestions_path}")
+        
+        # Export to Excel if enabled
+        if self.config.get('phase3.export_excel', False):
+            catalog_df = self.catalog.to_dataframe(include_arrays=False)
+            excel_path = output_path / "phase3_analysis.xlsx"
+            
+            analyzer.export_to_excel(
+                metrics_df=metrics_df,
+                catalog_df=catalog_df,
+                output_path=str(excel_path),
+                distances=distances,
             )
+            logger.info(f"Phase 3 analysis exported to {excel_path}")
+        
+        # Store for visualization
+        self.phase3_metrics = metrics_df
+        self.phase3_cluster_stats = cluster_stats
+        self.phase3_distances = distances
+        
+        logger.info("Phase 3 analysis complete")
+    
+    def generate_visualizations(self, output_path: Path) -> None:
+        """Generate all diagnostic visualizations."""
+        viz_path = output_path / "visualizations"
+        viz_path.mkdir(parents=True, exist_ok=True)
+        
+        # Standard visualizations
+        self.visualizer.plot_all(
+            catalog=self.catalog,
+            features=self.features,
+            labels=self.labels,
+            output_dir=viz_path,
+        )
+        
+        # Training diagnostics
+        if self.config.get('visualization.training_diagnostics', False):
+            logger.info("Generating training diagnostics...")
+            
+            if hasattr(self.trainer, 'train_losses'):
+                history = {
+                    'train_losses': self.trainer.train_losses,
+                    'val_losses': self.trainer.val_losses,
+                }
+                
+                if self.config.get('visualization.plot_loss_curves', True):
+                    plot_loss_curves_detailed(
+                        history,
+                        save_path=viz_path / "training_loss_detailed.png",
+                        log_scale=True,
+                    )
+                
+                if self.config.get('visualization.plot_reconstructions', True):
+                    # Get sample spectrograms
+                    spectrograms = np.array([event['spectrogram'] 
+                                            for event in self.catalog.events[:8]])
+                    spectrograms = torch.tensor(spectrograms[:, np.newaxis, :, :]).float()
+                    
+                    self.model.eval()
+                    with torch.no_grad():
+                        spectrograms = spectrograms.to(self.device)
+                        _, reconstructed = self.model(spectrograms)
+                    
+                    plot_reconstruction_comparison(
+                        spectrograms,
+                        reconstructed,
+                        n_examples=8,
+                        save_path=viz_path / "reconstructions.png",
+                    )
+        
+        # Clustering diagnostics
+        if self.config.get('visualization.clustering_diagnostics', False):
+            logger.info("Generating clustering diagnostics...")
+            
+            spectrograms = np.array([event['spectrogram'] for event in self.catalog.events])
+            waveforms = np.array([event['waveform'] for event in self.catalog.events])
+            
+            # Cluster grids
+            if self.config.get('visualization.plot_cluster_grids', True):
+                n_clusters_to_plot = min(10, self.clusterer.n_clusters)
+                for cluster_id in range(n_clusters_to_plot):
+                    plot_cluster_grid(
+                        cluster_id=cluster_id,
+                        spectrograms=spectrograms,
+                        waveforms=waveforms,
+                        labels=self.labels,
+                        reconstructed=None,
+                        n_examples=5,
+                        save_path=viz_path / f"cluster_{cluster_id}_grid.png",
+                    )
+            
+            # Phase 3 visualizations
+            if hasattr(self, 'phase3_cluster_stats'):
+                if self.config.get('visualization.plot_feature_heatmap', True):
+                    plot_cluster_feature_heatmap(
+                        self.phase3_cluster_stats,
+                        save_path=viz_path / "phase3_metrics_heatmap.png",
+                    )
+                
+                if self.config.get('visualization.plot_distance_distributions', True):
+                    plot_distance_distributions(
+                        self.phase3_distances,
+                        self.labels,
+                        n_clusters=min(20, self.clusterer.n_clusters),
+                        save_path=viz_path / "distance_distributions.png",
+                    )
+        
+        logger.info(f"Visualizations saved to {viz_path}")
     
     def load_model(self, model_path: str) -> None:
         """Load pre-trained model."""

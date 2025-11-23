@@ -14,42 +14,60 @@ logger = logging.getLogger(__name__)
 
 class GMMClusterer(BaseClusterer):
     """
-    Gaussian Mixture Model clustering with automatic cluster selection.
+    Gaussian Mixture Model clustering with specified number of clusters.
+    
+    Updated to match research paper approach: requires explicit n_clusters
+    specification (no automatic selection). This ensures reproducibility
+    and follows the research methodology of using K=50 for fine-grain
+    clustering followed by manual merging based on physical metrics.
     
     Parameters
     ----------
-    n_clusters : int, optional
-        Number of clusters. If None, automatically determined using BIC.
+    n_clusters : int
+        Number of clusters (REQUIRED - no default, no auto-selection)
     covariance_type : str
         Covariance type ('full', 'tied', 'diag', 'spherical')
-    max_clusters : int
-        Maximum number of clusters to try for auto-selection
+        Research paper uses 'full' for maximum flexibility
     random_state : int
-        Random seed
+        Random seed for reproducibility
     
     Examples
     --------
-    >>> clusterer = GMMClusterer(n_clusters=None)  # Auto-select
+    >>> clusterer = GMMClusterer(n_clusters=50)  # Research paper uses 50
     >>> labels = clusterer.fit_predict(features)
-    >>> print(f"Found {clusterer.n_clusters} clusters")
+    >>> print(f"Clustered into {clusterer.n_clusters} groups")
+    
+    Notes
+    -----
+    The research paper uses n_clusters=50 as an intentional over-division
+    strategy to capture fine-grain differences, followed by manual merging
+    based on physical metrics (peak frequency, frequency dominance, etc.).
     """
     
     def __init__(
         self,
-        n_clusters: Optional[int] = None,
+        n_clusters: int,
         covariance_type: str = 'full',
-        max_clusters: int = 20,
         random_state: int = 42,
     ):
+        if n_clusters is None:
+            raise ValueError(
+                "n_clusters is required and cannot be None. "
+                "Auto-selection has been removed to match research paper methodology. "
+                "Specify n_clusters explicitly (research paper uses n_clusters=50)."
+            )
+        if not isinstance(n_clusters, int) or n_clusters < 1:
+            raise ValueError(
+                f"n_clusters must be a positive integer, got {n_clusters}"
+            )
+        
         self.n_clusters = n_clusters
         self.covariance_type = covariance_type
-        self.max_clusters = max_clusters
         self.random_state = random_state
         
         self.model = None
         self.scaler = StandardScaler()
         self.labels_ = None
-        self.selection_metrics_ = None
     
     def fit(self, features: np.ndarray) -> "GMMClusterer":
         """
@@ -67,12 +85,9 @@ class GMMClusterer(BaseClusterer):
         # Standardize features
         features_scaled = self.scaler.fit_transform(features)
         
-        # Auto-select number of clusters if not specified
-        if self.n_clusters is None:
-            self.n_clusters, self.selection_metrics_ = self._select_n_clusters(features_scaled)
-            logger.info(f"Auto-selected {self.n_clusters} clusters")
+        # Fit GMM with specified number of clusters
+        logger.info(f"Fitting GMM with {self.n_clusters} clusters")
         
-        # Fit final model
         self.model = GaussianMixture(
             n_components=self.n_clusters,
             covariance_type=self.covariance_type,
@@ -155,69 +170,6 @@ class GMMClusterer(BaseClusterer):
             centers = self.scaler.inverse_transform(centers)
         
         return centers
-    
-    def _select_n_clusters(self, features_scaled: np.ndarray) -> Tuple[int, Dict[str, Any]]:
-        """
-        Automatically select number of clusters using BIC and silhouette.
-        
-        Returns
-        -------
-        n_clusters : int
-            Selected number of clusters
-        metrics : dict
-            Selection metrics for all tested cluster numbers
-        """
-        max_k = min(self.max_clusters, max(2, int(2 * np.sqrt(len(features_scaled)))))
-        k_range = range(1, max_k + 1)
-        
-        bics = []
-        aics = []
-        silhouettes = []
-        
-        logger.info(f"Testing k from 1 to {max_k}...")
-        
-        for k in k_range:
-            try:
-                gmm = GaussianMixture(
-                    n_components=k,
-                    covariance_type=self.covariance_type,
-                    n_init=5,
-                    random_state=self.random_state,
-                )
-                gmm.fit(features_scaled)
-                
-                bics.append(gmm.bic(features_scaled))
-                aics.append(gmm.aic(features_scaled))
-                
-                if k >= 2:
-                    labels = gmm.predict(features_scaled)
-                    try:
-                        sil = silhouette_score(features_scaled, labels)
-                        silhouettes.append(sil)
-                    except:
-                        silhouettes.append(np.nan)
-                else:
-                    silhouettes.append(np.nan)
-                    
-            except Exception as e:
-                logger.warning(f"GMM failed for k={k}: {e}")
-                bics.append(np.nan)
-                aics.append(np.nan)
-                silhouettes.append(np.nan)
-        
-        # Select best k by BIC (lower is better)
-        best_k = k_range[int(np.nanargmin(bics))]
-        
-        metrics = {
-            'k_range': list(k_range),
-            'bic': bics,
-            'aic': aics,
-            'silhouette': silhouettes,
-            'best_k_bic': best_k,
-            'best_k_silhouette': k_range[int(np.nanargmax(silhouettes))] if len(silhouettes) > 0 else None,
-        }
-        
-        return best_k, metrics
     
     def _log_cluster_sizes(self) -> None:
         """Log cluster sizes."""

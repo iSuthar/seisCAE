@@ -276,31 +276,74 @@ class EventDetector:
         self, 
         directory: str, 
         pattern: str = "*",
-        component: Optional[str] = None
+        component: Optional[str] = None,
+        recursive: bool = False,
     ) -> List[Tuple[str, Stream, np.ndarray, List]]:
         """
         Detect events in all files matching pattern in directory.
+        
+        Supports flexible directory structures:
+        - Flat: all files in directory (use recursive=False)
+        - Component-based: files organized by component subdirectories
+        - Nested: files in nested subdirectories (use recursive=True)
         
         Parameters
         ----------
         directory : str
             Directory containing seismic data
         pattern : str
-            File pattern to match (e.g., "*.mseed", "*.sac")
+            File pattern to match (e.g., "*.mseed", "*.sac", "*")
+            Use "*" to process all files regardless of extension
         component : str, optional
-            Component filter (e.g., "EHZ")
+            Component filter (e.g., "EHZ"). If provided, looks for
+            files in a subdirectory named after the component.
+            If None, processes files in the main directory.
+        recursive : bool
+            If True, recursively search subdirectories for files
             
         Returns
         -------
         results : list
             List of (filepath, stream, cft, triggers) tuples
+            
+        Examples
+        --------
+        Flat directory structure:
+        >>> results = detector.detect_directory("/data", pattern="*.mseed")
+        
+        Component-based structure:
+        >>> results = detector.detect_directory("/data", component="EHZ")
+        
+        Recursive search:
+        >>> results = detector.detect_directory("/data", recursive=True)
         """
         path = Path(directory)
+        
+        # If component specified, look in subdirectory
         if component:
             path = path / component
+            if not path.exists():
+                logger.warning(
+                    f"Component subdirectory {path} does not exist. "
+                    f"Searching in parent directory instead."
+                )
+                path = Path(directory)
         
-        files = sorted(path.glob(pattern))
+        # Find files based on recursive setting
+        if recursive:
+            files = sorted(path.rglob(pattern))
+        else:
+            files = sorted(path.glob(pattern))
+        
+        # Filter out directories
+        files = [f for f in files if f.is_file()]
+        
         logger.info(f"Found {len(files)} files to process in {path}")
+        if len(files) == 0:
+            logger.warning(
+                f"No files found matching pattern '{pattern}' in {path}. "
+                f"Consider using pattern='*' or recursive=True"
+            )
         
         results = []
         for filepath in files:

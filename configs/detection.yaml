@@ -50,6 +50,8 @@ io:
   save_waveforms: true          # Save all waveforms
   save_spectrograms: true       # Save all spectrograms
   save_diagnostics: true        # Save all diagnostic plots
+  file_pattern: "*"             # File pattern (e.g., "*.mseed", "*.sac", "*" for all files)
+  recursive_search: false       # Set to true for nested directory structures
 
 # Components
 # ----------
@@ -72,19 +74,17 @@ logging:
   log_file: detection.log
   format: "%(asctime)s | %(levelname)s | %(message)s"
 
-# Detection-Specific Options
-# ---------------------------
-detection_options:
-  max_event_duration: 60.0      # Maximum event duration (seconds)
-  merge_nearby_triggers: true   # Merge triggers within gap
-  merge_gap_seconds: 1.0        # Gap for merging (seconds)
-  reject_low_energy: true       # Reject low-energy events
-  energy_threshold: 0.01        # Energy threshold for rejection
+# Future Features (Not Yet Implemented)
+# --------------------------------------
+# detection_options:
+#   max_event_duration: 60.0      # Maximum event duration (seconds)
+#   merge_nearby_triggers: true   # Merge triggers within gap
+#   merge_gap_seconds: 1.0        # Gap for merging (seconds)
+#   reject_low_energy: true       # Reject low-energy events
+#   energy_threshold: 0.01        # Energy threshold for rejection
 
-# Quality Control
-# ---------------
-quality_control:
-  check_data_quality: true      # Check for data gaps, spikes
-  reject_clipped: true          # Reject clipped waveforms
-  reject_gaps: true             # Reject data with gaps
-  max_gap_fraction: 0.1         # Maximum allowed gap fraction
+# quality_control:
+#   check_data_quality: true      # Check for data gaps, spikes
+#   reject_clipped: true          # Reject clipped waveforms
+#   reject_gaps: true             # Reject data with gaps
+#   max_gap_fraction: 0.1         # Maximum allowed gap fraction

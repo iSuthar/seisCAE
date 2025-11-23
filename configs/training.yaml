@@ -24,7 +24,7 @@ training:
   learning_rate: 0.00005        # Lower learning rate (5e-5)
   patience: 30                  # More patience for convergence
   validation_split: 0.25        # 25% validation data
-  num_workers: 8                # More workers for data loading
+  num_workers: 4                # More workers for data loading
   save_frequency: 25            # Save checkpoints every 25 epochs
 
 # Training Advanced Options
